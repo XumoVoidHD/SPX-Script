@@ -546,12 +546,9 @@ class IBTWSAPI:
 
         self.client.reqMarketDataType(1)
         market_data = self.client.reqMktData(option_contract, '', snapshot=True)
-        self.ib.sleep(1)
+        self.ib.sleep(5)
         if print_data:
             print("market data is", market_data)
-
-        while util.isNan(market_data.bid) or util.isNan(market_data.ask) or util.isNan(market_data.last):
-            self.ib.sleep(1)
 
         premium_price = {
             "bid": market_data.bid,

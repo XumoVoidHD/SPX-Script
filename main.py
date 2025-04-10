@@ -33,7 +33,7 @@ nest_asyncio.apply()
 creds = {
     "host": credentials.host,
     "port": credentials.port,
-    "client_id": 10
+    "client_id": 14
 }
 
 
@@ -294,7 +294,6 @@ class Strategy:
     async def call_check(self):
         temp_percentage = 1 - (credentials.call_entry_price_changes_by / 100)
         while self.should_continue:
-            print("call check 1")
             if self.call_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
@@ -302,8 +301,6 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-
-                print(f"call{premium_price}")
 
                 if premium_price['mid'] >= self.atm_call_sl:
                     await self.dprint(
@@ -341,7 +338,6 @@ class Strategy:
 
                 await asyncio.sleep(1)
             else:
-                print("call check 2")
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
                     expiry=credentials.date,
@@ -407,7 +403,6 @@ class Strategy:
     async def put_check(self):
         temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
         while self.should_continue:
-            print("put check 1")
             if self.put_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
@@ -415,8 +410,6 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-
-                print(f"put{premium_price}")
 
                 if premium_price['mid'] >= self.atm_put_sl:
                     await self.dprint(
@@ -454,7 +447,6 @@ class Strategy:
 
                 await asyncio.sleep(1)
             else:
-                print("put check 1")
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
                     expiry=credentials.date,
