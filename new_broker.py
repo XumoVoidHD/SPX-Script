@@ -74,6 +74,11 @@ class IBTWSAPI:
         self.client.sleep(7)
         return x
 
+    async def close_all_open_orders(self):
+        open_orders = self.client.reqOpenOrders()
+        for order in open_orders:
+            self.client.cancelOrder(order=order.orderStatus)
+
     async def get_contract_info(self, contract: str, symbol: str, exchange: str) -> dict:
         """
         Returns info of the contract\n
@@ -142,6 +147,8 @@ class IBTWSAPI:
 
     async def place_market_order(self, contract, qty, side):
         buy_order = MarketOrder(side, qty)
+        print(contract)
+        print(buy_order)
         buy_trade = self.client.placeOrder(contract, buy_order)
         print("waiting for order to be placed")
         n = 1
@@ -586,3 +593,66 @@ class IBTWSAPI:
         self.client.sleep(3)
 
         return new_trade
+
+    async def place_stp_order(self, contract, side, quantity, sl):
+        # option_details = self.client.reqContractDetails(contract)
+        # print(option_details[0].contract)
+        # if not option_details:
+        #     print("Invalid contract. Please check the option details.")
+        #
+        # stop_order = StopOrder(side, quantity, sl)
+        # trade = self.client.placeOrder(option_details[0].contract, stop_order)
+        # print(stop_order)
+        # print(trade)
+        # self.client.sleep(3)
+        # print(f"Order status: {trade.orderStatus.status}")
+        #
+        # return trade.order.orderId
+
+        details = self.client.reqContractDetails(contract)
+        contract = details[0].contract
+        stop_order = StopOrder(side, quantity, round(sl, 1))
+        print(stop_order)
+        trade = self.client.placeOrder(contract, stop_order)
+        self.client.sleep(2)
+        print(f"done {trade.orderStatus.status}")
+
+        return trade.order.orderId
+
+    # async def place_stp_order(self, contract, side, quantity, sl):
+    #     # Request contract details
+    #     details = self.client.reqContractDetails(contract)
+    #
+    #     if not details:
+    #         print("Invalid contract. Please check the option details.")
+    #         return None
+    #
+    #     # Extract the validated contract from details
+    #     validated_contract = details[0].contract
+    #
+    #     # Create a stop order
+    #     stop_order = StopOrder(side, quantity, sl)
+    #
+    #     # Place the order
+    #     trade = self.client.placeOrder(validated_contract, stop_order)
+    #
+    #     # Wait for order processing
+    #     self.client.sleep(3)
+    #
+    #     # Access order status correctly
+    #     print(f"Order status: {trade.orderStatus.status}")
+    #
+    #     # Return the order ID
+    #     return trade.orderId
+
+    async def modify_stp_order(self, contract, quantity, side, sl, order_id):
+
+        option_details = self.client.reqContractDetails(contract)
+        if not option_details:
+            print("Invalid contract. Please check the option details.")
+
+        stop_order = StopOrder(side, quantity, sl, orderId=order_id)
+        trade = self.client.placeOrder(option_details[0].contract, stop_order)
+
+        self.client.sleep(1)
+        print(f"Order status: {trade.orderStatus.status}")
