@@ -288,6 +288,7 @@ class Strategy:
             self.atm_call_fill = k[1]
             self.atm_call_sl = self.atm_call_fill * (1 + (self.call_percent / 100))
             await self.dprint(f"Call Order placed at {k[1]}")
+            await self.dprint(f"Call Order sl is {self.atm_call_sl}")
             await asyncio.sleep(1)
             self.call_stp_id = await self.broker.place_stp_order(contract=self.call_contract, side="BUY",
                                                                  quantity=credentials.call_position,
@@ -410,6 +411,7 @@ class Strategy:
             self.atm_put_fill = k[1]
             self.atm_put_sl = self.atm_put_fill * (1 + (self.put_percent / 100))
             await self.dprint(f"Put Order placed at {k[1]}")
+            await self.dprint(f"Put Order sl is {self.atm_put_sl}")
             await asyncio.sleep(1)
             self.put_stp_id = await self.broker.place_stp_order(contract=self.put_contract, side="BUY",
                                                                 quantity=credentials.put_position,

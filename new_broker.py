@@ -595,20 +595,6 @@ class IBTWSAPI:
         return new_trade
 
     async def place_stp_order(self, contract, side, quantity, sl):
-        # option_details = self.client.reqContractDetails(contract)
-        # print(option_details[0].contract)
-        # if not option_details:
-        #     print("Invalid contract. Please check the option details.")
-        #
-        # stop_order = StopOrder(side, quantity, sl)
-        # trade = self.client.placeOrder(option_details[0].contract, stop_order)
-        # print(stop_order)
-        # print(trade)
-        # self.client.sleep(3)
-        # print(f"Order status: {trade.orderStatus.status}")
-        #
-        # return trade.order.orderId
-
         details = self.client.reqContractDetails(contract)
         contract = details[0].contract
         stop_order = StopOrder(side, quantity, round(sl, 1))
@@ -618,32 +604,6 @@ class IBTWSAPI:
         print(f"done {trade.orderStatus.status}")
 
         return trade.order.orderId
-
-    # async def place_stp_order(self, contract, side, quantity, sl):
-    #     # Request contract details
-    #     details = self.client.reqContractDetails(contract)
-    #
-    #     if not details:
-    #         print("Invalid contract. Please check the option details.")
-    #         return None
-    #
-    #     # Extract the validated contract from details
-    #     validated_contract = details[0].contract
-    #
-    #     # Create a stop order
-    #     stop_order = StopOrder(side, quantity, sl)
-    #
-    #     # Place the order
-    #     trade = self.client.placeOrder(validated_contract, stop_order)
-    #
-    #     # Wait for order processing
-    #     self.client.sleep(3)
-    #
-    #     # Access order status correctly
-    #     print(f"Order status: {trade.orderStatus.status}")
-    #
-    #     # Return the order ID
-    #     return trade.orderId
 
     async def modify_stp_order(self, contract, quantity, side, sl, order_id):
 
