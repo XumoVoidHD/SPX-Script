@@ -145,9 +145,11 @@ class Strategy:
             await asyncio.sleep(10)
 
         await asyncio.gather(
-            self.call_check(),
+            self.call_trail_check(),
             self.close_all_positions(test=False),
-            self.put_check(),
+            self.put_trail_check(),
+            self.put_hedge_check(),
+            self.call_hedge_check(),
         )
 
     async def close_all_positions(self, test):
@@ -296,9 +298,7 @@ class Strategy:
         except Exception as e:
             await self.dprint(f"Error in placing sell side call order: {str(e)}")
 
-    async def call_check(self):
-        # temp_percentage = 1 - (credentials.call_entry_price_changes_by / 100)
-        temp_percentage = 1
+    async def call_hedge_check(self):
         while self.should_continue:
             if self.call_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
@@ -307,7 +307,6 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-                print(premium_price)
                 open_trades = await self.broker.get_open_orders()
 
                 call_exists = any(
@@ -327,9 +326,21 @@ class Strategy:
                     )
                     continue
 
+            await asyncio.sleep(1)
+
+    async def call_trail_check(self):
+        temp_percentage = 1
+        while self.should_continue:
+            if self.call_order_placed:
+                premium_price = await self.broker.get_latest_premium_price(
+                    symbol=credentials.instrument,
+                    expiry=credentials.date,
+                    strike=self.call_target_price,
+                    right="C"
+                )
+
                 if premium_price['ask'] <= self.atm_call_fill - temp_percentage * (
                         credentials.call_entry_price_changes_by / 100) * self.atm_call_fill:
-
                     self.atm_call_sl = self.atm_call_sl - (self.atm_call_fill * (credentials.call_change_sl_by / 100))
                     await self.dprint(
                         f"[CALL] Price dip detected - Adjusting trailing parameters"
@@ -412,8 +423,7 @@ class Strategy:
         except Exception as e:
             await self.dprint(f"Error in placing sell side put order: {str(e)}")
 
-    async def put_check(self):
-        temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
+    async def put_hedge_check(self):
         while self.should_continue:
             if self.put_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
@@ -442,9 +452,21 @@ class Strategy:
                     )
                     continue
 
+            await asyncio.sleep(1)
+
+    async def put_trail_check(self):
+        temp_percentage = 1
+        while self.should_continue:
+            if self.put_order_placed:
+                premium_price = await self.broker.get_latest_premium_price(
+                    symbol=credentials.instrument,
+                    expiry=credentials.date,
+                    strike=self.put_target_price,
+                    right="P"
+                )
+
                 if premium_price['ask'] <= self.atm_put_fill - temp_percentage * (
                         credentials.put_entry_price_changes_by / 100) * self.atm_put_fill:
-
                     self.atm_put_sl = self.atm_put_sl - (self.atm_put_fill * (credentials.put_change_sl_by / 100))
                     await self.dprint(
                         f"[PUT] Price dip detected - Adjusting trailing parameters"
