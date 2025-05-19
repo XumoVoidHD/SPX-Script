@@ -61,7 +61,7 @@ class Strategy:
         self.call_order_placed = False
         self.put_order_placed = False
         self.should_continue = True
-        self.testing = True
+        self.testing = False
         self.reset = False
         self.func_test = False
         self.enable_logging = credentials.enable_logging

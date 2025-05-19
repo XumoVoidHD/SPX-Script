@@ -8,7 +8,6 @@ from pytz import timezone
 from discord_bot import send_discord_message
 import os
 import logging
-import time
 
 
 def setup_logging():
@@ -61,7 +60,7 @@ class Strategy:
         self.call_order_placed = False
         self.put_order_placed = False
         self.should_continue = True
-        self.testing = False
+        self.testing = True
         self.reset = False
         self.func_test = False
         self.enable_logging = credentials.enable_logging
@@ -72,6 +71,10 @@ class Strategy:
         if self.enable_logging:
             self.logger.info(phrase)
         await send_discord_message(phrase)
+
+    async def lprint(self,phrase):
+        if self.enable_logging:
+            self.logger.info(phrase)
 
     async def main(self):
         await send_discord_message("." * 100)
@@ -85,10 +88,6 @@ class Strategy:
 
         if self.func_test:
             await self.broker.cancel_hedge()
-            await self.dprint("Closing Hedges")
-            await self.broker.cancel_positions()
-            await self.dprint("Closing Orders")
-
             return
 
         while True:
@@ -181,13 +180,15 @@ class Strategy:
 
     async def close_call(self):
         if self.call_order_placed:
-            await self.broker.cancel_call(hedge_strike=self.otm_closest_call, position_strike=self.call_target_price)
+            await self.broker.cancel_call(hedge_strike=self.otm_closest_call, position_strike=self.call_target_price,
+                                          close_hedge=credentials.close_hedges)
         else:
             return
 
     async def close_put(self):
         if self.put_order_placed:
-            await self.broker.cancel_put(hedge_strike=self.otm_closest_put, position_strike=self.put_target_price)
+            await self.broker.cancel_put(hedge_strike=self.otm_closest_put, position_strike=self.put_target_price,
+                                         close_hedge=credentials.close_hedges)
         else:
             return
 
@@ -307,16 +308,19 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-                open_trades = await self.broker.get_open_orders()
+                await self.lprint(f"Call Hedge Premium: {premium_price}")
+                open_trades = await self.broker.get_positions()
 
                 call_exists = any(
-                    trade.contract.secType == 'OPT' and trade.contract.right == 'C'
+                    trade.contract.secType == 'OPT' and trade.contract.right == 'C' and
+                    trade.contract.symbol == credentials.instrument and trade.contract.strike == self.call_target_price
                     for trade in open_trades
                 )
 
-                if not call_exists:
-                    await self.close_open_hedges(close_call=True, close_put=False)
+                if not call_exists and self.should_continue:
                     self.call_order_placed = False
+                    if credentials.close_hedges:
+                        await self.close_open_hedges(close_call=True, close_put=False)
                     await self.dprint(
                         f"[CALL] Stop loss triggered - Executing market buy"
                         f"\nCurrent Premium: {premium_price['mid']}"
@@ -338,7 +342,7 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-
+                await self.lprint(f"Call Sell Leg Premium: {premium_price}")
                 if premium_price['ask'] <= self.atm_call_fill - temp_percentage * (
                         credentials.call_entry_price_changes_by / 100) * self.atm_call_fill:
                     self.atm_call_sl = self.atm_call_sl - (self.atm_call_fill * (credentials.call_change_sl_by / 100))
@@ -363,7 +367,7 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-
+                await self.lprint(f"Call Sell Leg Re-entry Premium: {premium_price}")
                 if premium_price['ask'] <= self.atm_call_fill and self.call_rentry < credentials.number_of_re_entry:
                     await self.dprint(
                         f"[CALL] Entry condition met - Initiating new position"
@@ -374,9 +378,10 @@ class Strategy:
                     )
                     self.call_rentry += 1
                     await self.dprint(f"Number of re-entries happened: {self.call_rentry}")
-                    await self.place_hedge_orders(call=True, put=False)
+                    if credentials.close_hedges:
+                        await self.place_hedge_orders(call=True, put=False)
                     await self.place_atm_call_order()
-                    temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
+                    temp_percentage = 1
                     self.call_order_placed = True
                     continue
 
@@ -432,17 +437,19 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-
-                open_trades = await self.broker.get_open_orders()
+                await self.lprint(f"Put Hedge Premium: {premium_price}")
+                open_trades = await self.broker.get_positions()
 
                 put_exists = any(
-                    trade.contract.secType == 'OPT' and trade.contract.right == 'P'
+                    trade.contract.secType == 'OPT' and trade.contract.right == 'P' and
+                    trade.contract.symbol == credentials.instrument and trade.contract.strike == self.put_target_price
                     for trade in open_trades
                 )
 
-                if not put_exists:
-                    await self.close_open_hedges(close_call=False, close_put=True)
+                if not put_exists and self.should_continue:
                     self.put_order_placed = False
+                    if credentials.close_hedges:
+                        await self.close_open_hedges(close_call=False, close_put=True)
                     await self.dprint(
                         f"[PUT] Stop loss triggered - Executing market buy"
                         f"\nCurrent Premium: {premium_price['mid']}"
@@ -464,7 +471,7 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-
+                await self.lprint(f"Put Sell Leg Premium: {premium_price}")
                 if premium_price['ask'] <= self.atm_put_fill - temp_percentage * (
                         credentials.put_entry_price_changes_by / 100) * self.atm_put_fill:
                     self.atm_put_sl = self.atm_put_sl - (self.atm_put_fill * (credentials.put_change_sl_by / 100))
@@ -489,7 +496,7 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-
+                await self.lprint(f"Put Sell Leg Re-entry Premium: {premium_price}")
                 if premium_price['ask'] <= self.atm_put_fill and self.put_rentry < credentials.number_of_re_entry:
                     await self.dprint(
                         f"[PUT] Entry condition met - Initiating new position"
@@ -500,9 +507,10 @@ class Strategy:
                     )
                     self.put_rentry += 1
                     await self.dprint(f"Number of re-entries happened: {self.call_rentry}")
-                    await self.place_hedge_orders(call=False, put=True)
+                    if credentials.close_hedges:
+                        await self.place_hedge_orders(call=False, put=True)
                     await self.place_atm_put_order()
-                    temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
+                    temp_percentage = 1
                     self.put_order_placed = True
                     continue
 

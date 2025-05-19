@@ -427,7 +427,7 @@ class IBTWSAPI:
                 # await self.place_market_order(contract=contract, qty=quantity, side=action)
                 print(f"Closing position: {action} {quantity} {position.contract.localSymbol} at market")
 
-    async def cancel_call(self, hedge_strike, position_strike):
+    async def cancel_call(self, hedge_strike, position_strike, close_hedge):
         hedge_contract = Option(
             symbol=credentials.instrument,
             lastTradeDateOrContractMonth=credentials.date,
@@ -449,10 +449,11 @@ class IBTWSAPI:
 
         await self.place_market_order(contract=contract, qty=credentials.call_position, side="BUY")
         print("Call positions closed")
-        await self.place_market_order(contract=hedge_contract, qty=credentials.call_hedge_quantity, side="SELL")
-        print("Call hedge closed")
+        if close_hedge:
+            await self.place_market_order(contract=hedge_contract, qty=credentials.call_hedge_quantity, side="SELL")
+            print("Call hedge closed")
 
-    async def cancel_put(self, hedge_strike, position_strike):
+    async def cancel_put(self, hedge_strike, position_strike, close_hedge):
         hedge_contract = Option(
             symbol=credentials.instrument,
             lastTradeDateOrContractMonth=credentials.date,
@@ -474,8 +475,9 @@ class IBTWSAPI:
 
         await self.place_market_order(contract=contract, qty=credentials.put_position, side="BUY")
         print("Put position closed")
-        await self.place_market_order(contract=hedge_contract, qty=credentials.put_hedge_quantity, side="SELL")
-        print("Put hedge closed")
+        if close_hedge:
+            await self.place_market_order(contract=hedge_contract, qty=credentials.put_hedge_quantity, side="SELL")
+            print("Put hedge closed")
 
     async def cancel_positions(self):
         positions = await self.get_positions()
@@ -536,7 +538,7 @@ class IBTWSAPI:
         """
         self.app = app
 
-    async def get_latest_premium_price(self, symbol, expiry, strike, right, exchange="CBOE", print_data=False):
+    async def get_latest_premium_price(self, symbol, expiry, strike, right, exchange="SMART", print_data=False):
 
         option_contract = Option(
             symbol=symbol,

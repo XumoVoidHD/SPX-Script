@@ -7,11 +7,12 @@ exchange = "CBOE"
 currency = "USD"
 close_positions = False
 enable_logging = False
-calc_values = True
-WEBHOOK_URL = "https://discord.com/api/webhooks/1338552075855855617/VpDHXKiScT6K2b3Lwzm1GCNBFgaZ-ajYjBZfgcGNnL0CqonXQDDBZcPfZFzALLjoOdOt"
+calc_values = False
+close_hedges = True
+WEBHOOK_URL = "https://discord.com/api/webhooks/1338550862922125382/ngLa-LmVaolmdMDeNV4f4jTEhzhCJwvZXsSrpHiYcZmWIhYEQ9ef4elRQB0Kf1PmYG5B"
 
 # Changeable Values
-date = "20250421"                   # Date of contract (YYYY-MM-DD)
+date = "20250430"                   # Date of contract (YYYY-MM-DD)
 number_of_re_entry = 1              # Specifies the number of re-entries allowed
 OTM_CALL_HEDGE = 12                # How far away the call hedge is (10 means that its $50 away from current price)
 OTM_PUT_HEDGE = 12                 # How far away the put hedge is (10 means that its $50 away from current price)
@@ -27,8 +28,8 @@ conversion_time = 10                # Deprecated (No use)
 entry_hour = 9                      # Entry time in hours
 entry_minute = 40                   # Entry time in minutes
 entry_second = 00                    # Entry time in seconds
-exit_hour = 16                     # Exit time in hours
-exit_minute = 00                  # Exit time in minutes
+exit_hour = 5                     # Exit time in hours
+exit_minute = 45                  # Exit time in minutes
 exit_second = 00                     # Exit time in seconds
 call_hedge_quantity = 1             # Quantity for call hedge
 put_hedge_quantity = 1              # Quantity for put hedge
