@@ -420,6 +420,7 @@ class IBTWSAPI:
                     exchange="SMART",
                     currency="USD",
                     multiplier='100',
+                    tradingClass=credentials.tradingClass
                 )
                 try:
                     buy_order = MarketOrder(action, quantity)
@@ -440,6 +441,7 @@ class IBTWSAPI:
             exchange="SMART",
             currency="USD",
             multiplier='100',
+            tradingClass=credentials.tradingClass
         )
         contract = Option(
             symbol=credentials.instrument,
@@ -449,6 +451,7 @@ class IBTWSAPI:
             exchange="SMART",
             currency="USD",
             multiplier='100',
+            tradingClass=credentials.tradingClass
         )
 
         await self.place_market_order(contract=contract, qty=credentials.call_position, side="BUY")
@@ -466,6 +469,7 @@ class IBTWSAPI:
             exchange="SMART",
             currency="USD",
             multiplier='100',
+            tradingClass=credentials.tradingClass
         )
         contract = Option(
             symbol=credentials.instrument,
@@ -475,6 +479,7 @@ class IBTWSAPI:
             exchange="SMART",
             currency="USD",
             multiplier='100',
+            tradingClass=credentials.tradingClass
         )
 
         await self.place_market_order(contract=contract, qty=credentials.put_position, side="BUY")
@@ -498,6 +503,7 @@ class IBTWSAPI:
                     exchange="SMART",
                     currency="USD",
                     multiplier='100',
+                    tradingClass=credentials.tradingClass
                 )
                 buy_order = MarketOrder(action, quantity)
                 buy_trade = self.client.placeOrder(contract, buy_order)
@@ -552,7 +558,7 @@ class IBTWSAPI:
             exchange=exchange,
             currency="USD",  # Add currency to disambiguate
             multiplier="100",  # Ensure the multiplier matches
-            # tradingClass="SPXW",  # Specify tradingClass (e.g., SPXW or SPX)
+            tradingClass=credentials.tradingClass
         )
 
         self.client.qualifyContracts(option_contract)

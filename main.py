@@ -67,7 +67,7 @@ class Strategy:
         self.call_order_placed = False
         self.put_order_placed = False
         self.should_continue = True
-        self.testing = True
+        self.testing = False
         self.reset = False
         self.func_test = False
         self.enable_logging = credentials.enable_logging
@@ -227,7 +227,8 @@ class Strategy:
                 right='C',
                 exchange="SMART",
                 currency="USD",
-                multiplier='100'
+                multiplier='100',
+                tradingClass=credentials.tradingClass
             )
             try:
                 await self.dprint("Placing Hedge Call Order")
@@ -265,7 +266,8 @@ class Strategy:
                 right='P',
                 exchange="SMART",
                 currency="USD",
-                multiplier='100'
+                multiplier='100',
+                tradingClass=credentials.tradingClass
             )
             try:
                 await self.dprint("Placing Hedge Put Order")
@@ -304,7 +306,8 @@ class Strategy:
                 right='C',
                 exchange="SMART",
                 currency="USD",
-                multiplier='100'
+                multiplier='100',
+                tradingClass=credentials.tradingClass
             )
             qualified_contracts = self.broker.client.qualifyContracts(spx_contract_call)
             if not qualified_contracts:
@@ -324,7 +327,9 @@ class Strategy:
                 right='P',
                 exchange="SMART",
                 currency="USD",
-                multiplier='100'
+                multiplier='100',
+                tradingClass=credentials.tradingClass
+                
             )
             qualified_contracts = self.broker.client.qualifyContracts(spx_contract_put)
             if not qualified_contracts:
@@ -350,7 +355,8 @@ class Strategy:
             right='C',
             exchange="SMART",
             currency="USD",
-            multiplier='100'
+            multiplier='100',
+            tradingClass=credentials.tradingClass
         )
 
         qualified_contracts = self.broker.client.qualifyContracts(self.call_contract)
@@ -498,7 +504,8 @@ class Strategy:
             right='P',
             exchange="SMART",
             currency="USD",
-            multiplier='100'
+            multiplier='100',
+            tradingClass=credentials.tradingClass
         )
 
         qualified_contracts = self.broker.client.qualifyContracts(self.put_contract)
