@@ -8,6 +8,7 @@ from pytz import timezone
 from discord_bot import send_discord_message
 import os
 import logging
+import time
 
 
 def setup_logging():
@@ -39,13 +40,6 @@ creds = {
 class Strategy:
 
     def __init__(self):
-        self.close_and_open_hedges_with_position = False
-        self.atm_call_id = None
-        self.atm_put_id = None
-        self.otm_call_id = None
-        self.otm_put_id = None
-        self.otm_put_fill = None
-        self.otm_call_fill = None
         self.call_contract = None
         self.put_contract = None
         self.call_stp_id = None
@@ -67,7 +61,7 @@ class Strategy:
         self.call_order_placed = False
         self.put_order_placed = False
         self.should_continue = True
-        self.testing = True
+        self.testing = False
         self.reset = False
         self.func_test = False
         self.enable_logging = credentials.enable_logging
@@ -78,10 +72,6 @@ class Strategy:
         if self.enable_logging:
             self.logger.info(phrase)
         await send_discord_message(phrase)
-
-    async def lprint(self, phrase):
-        if self.enable_logging:
-            self.logger.info(phrase)
 
     async def main(self):
         await send_discord_message("." * 100)
@@ -95,12 +85,11 @@ class Strategy:
 
         if self.func_test:
             await self.broker.cancel_hedge()
-            return
+            await self.dprint("Closing Hedges")
+            await self.broker.cancel_positions()
+            await self.dprint("Closing Orders")
 
-        if credentials.active_close_hedges and credentials.close_hedges:
-            self.close_and_open_hedges_with_position = True
-        else:
-            self.close_and_open_hedges_with_position = False
+            return
 
         while True:
             current_time = datetime.now(timezone('US/Eastern'))
@@ -147,10 +136,7 @@ class Strategy:
                     if credentials.ATM_CALL > 0:
                         self.put_target_price -= 5 * credentials.ATM_CALL
                 await self.dprint(f"PUT POSITION STRIKE PRICE: {self.put_target_price}")
-                if ((credentials.active_close_hedges and not credentials.close_hedges)
-                        or (credentials.close_hedges and credentials.active_close_hedges)):
-                    await self.place_hedge_orders(call=True, put=True)
-
+                await self.place_hedge_orders(call=True, put=True)
                 await self.place_atm_put_order()
                 await self.place_atm_call_order()
                 break
@@ -159,15 +145,10 @@ class Strategy:
             await asyncio.sleep(10)
 
         await asyncio.gather(
-            self.call_trail_check(),
+            self.call_check(),
             self.close_all_positions(test=False),
-            self.put_trail_check(),
-            self.put_hedge_check(),
-            self.call_hedge_check(),
+            self.put_check(),
         )
-
-        if credentials.active_close_hedges and not credentials.close_hedges:
-            await self.close_open_hedges(close_put=True, close_call=True)
 
     async def close_all_positions(self, test):
         if credentials.close_positions and not test:
@@ -183,15 +164,7 @@ class Strategy:
 
                 if current_time >= target_time or test:
                     self.should_continue = False
-
-                    if self.atm_call_id:
-                        print(f"atm call id: {self.atm_call_id}")
-                        await self.broker.cancel_order(self.call_stp_id)
-                        await self.broker.cancel_order(self.atm_call_id)
-                    if self.atm_put_id:
-                        print(f"atm put id: {self.atm_put_id}")
-                        await self.broker.cancel_order(self.put_stp_id)
-                        await self.broker.cancel_order(self.atm_put_id)
+                    await self.broker.close_all_open_orders()
                     try:
                         await asyncio.gather(
                             self.close_call(),
@@ -206,15 +179,13 @@ class Strategy:
 
     async def close_call(self):
         if self.call_order_placed:
-            await self.broker.cancel_call(hedge_strike=self.otm_closest_call, position_strike=self.call_target_price,
-                                          close_hedge=self.close_and_open_hedges_with_position)
+            await self.broker.cancel_call(hedge_strike=self.otm_closest_call, position_strike=self.call_target_price)
         else:
             return
 
     async def close_put(self):
         if self.put_order_placed:
-            await self.broker.cancel_put(hedge_strike=self.otm_closest_put, position_strike=self.put_target_price,
-                                         close_hedge=self.close_and_open_hedges_with_position)
+            await self.broker.cancel_put(hedge_strike=self.otm_closest_put, position_strike=self.put_target_price)
         else:
             return
 
@@ -230,30 +201,9 @@ class Strategy:
                 multiplier='100'
             )
             try:
+                await self.broker.place_market_order(contract=spx_contract_call,
+                                                     qty=credentials.call_hedge_quantity, side="BUY")
                 await self.dprint("Placing Hedge Call Order")
-                m, self.otm_call_fill, self.otm_call_id = await self.broker.place_market_order(
-                    contract=spx_contract_call,
-                    qty=credentials.call_hedge_quantity, side="BUY")
-
-                while self.should_continue:
-                    open_orders = await self.broker.get_open_orders()
-                    matching_order = next((trade for trade in open_orders if trade.order.orderId == self.otm_call_id),
-                                          None)
-
-                    if matching_order:
-                        self.otm_call_fill = matching_order.orderStatus.avgFillPrice
-                        if self.otm_call_fill > 0:
-                            print(f"Call hedge {self.otm_call_fill} is filled.")
-                            break
-                        else:
-                            print("Call hedge still open but not filled")
-                    else:
-                        print(
-                            f"Call hedge {self.otm_call_fill} is no longer in open orders — might be cancelled or filled.")
-                        break
-
-                    await asyncio.sleep(1)
-
             except Exception as e:
                 await self.dprint(f"Error placing call hedge order: {str(e)}")
 
@@ -268,30 +218,9 @@ class Strategy:
                 multiplier='100'
             )
             try:
+                await self.broker.place_market_order(contract=spx_contract_put, qty=credentials.put_hedge_quantity,
+                                                     side="BUY")
                 await self.dprint("Placing Hedge Put Order")
-                n, self.otm_put_fill, self.otm_put_id = await self.broker.place_market_order(contract=spx_contract_put,
-                                                                                             qty=credentials.put_hedge_quantity,
-                                                                                             side="BUY")
-
-                while self.should_continue:
-                    open_orders = await self.broker.get_open_orders()
-                    matching_order = next((trade for trade in open_orders if trade.order.orderId == self.otm_put_id),
-                                          None)
-
-                    if matching_order:
-                        self.otm_put_fill = matching_order.orderStatus.avgFillPrice
-                        if self.otm_put_fill > 0:
-                            print(f"Put Hedge {self.otm_put_fill} is filled.")
-                            break
-                        else:
-                            print("Put Hedge still open but not filled")
-                    else:
-                        print(
-                            f"Put Hedge {self.otm_put_fill} is no longer in open orders — might be cancelled or filled.")
-                        break
-
-                    await asyncio.sleep(1)
-
             except Exception as e:
                 await self.dprint(f"Error placing put hedge order: {str(e)}")
 
@@ -306,9 +235,6 @@ class Strategy:
                 currency="USD",
                 multiplier='100'
             )
-            qualified_contracts = self.broker.client.qualifyContracts(spx_contract_call)
-            if not qualified_contracts:
-                raise ValueError("Failed to qualify contract with IBKR.")
             try:
                 await self.broker.place_market_order(contract=spx_contract_call, qty=credentials.call_hedge_quantity,
                                                      side="SELL")
@@ -326,9 +252,6 @@ class Strategy:
                 currency="USD",
                 multiplier='100'
             )
-            qualified_contracts = self.broker.client.qualifyContracts(spx_contract_put)
-            if not qualified_contracts:
-                raise ValueError("Failed to qualify contract with IBKR.")
             try:
                 await self.broker.place_market_order(contract=spx_contract_put, qty=credentials.put_hedge_quantity,
                                                      side="SELL")
@@ -359,30 +282,12 @@ class Strategy:
         print('last price is', premium_price['last'])
 
         try:
-            k, self.atm_call_fill, self.atm_call_id = await self.broker.place_market_order(contract=self.call_contract,
-                                                                                           qty=credentials.call_position,
-                                                                                           side="SELL")
-            while self.should_continue:
-                open_orders = await self.broker.get_open_orders()
-                matching_order = next((trade for trade in open_orders if trade.order.orderId == self.atm_call_id), None)
-
-                if matching_order:
-                    self.atm_call_fill = matching_order.orderStatus.avgFillPrice
-                    if self.atm_call_fill > 0:
-                        print(f"Call Position {self.atm_call_id} is filled.")
-                        break
-                    else:
-                        print("Call Position still open but not filled")
-                else:
-                    print(
-                        f"Call Position {self.atm_call_id} is no longer in open orders — might be cancelled or filled.")
-                    break
-
-                await asyncio.sleep(1)
-
+            k = await self.broker.place_market_order(contract=self.call_contract, qty=credentials.call_position,
+                                                     side="SELL")
             self.call_order_placed = True
+            self.atm_call_fill = k[1]
             self.atm_call_sl = self.atm_call_fill * (1 + (self.call_percent / 100))
-            await self.dprint(f"Call Order placed at {self.atm_call_fill}")
+            await self.dprint(f"Call Order placed at {k[1]}")
             await self.dprint(f"Call Order sl is {self.atm_call_sl}")
             await asyncio.sleep(1)
             self.call_stp_id = await self.broker.place_stp_order(contract=self.call_contract, side="BUY",
@@ -391,7 +296,8 @@ class Strategy:
         except Exception as e:
             await self.dprint(f"Error in placing sell side call order: {str(e)}")
 
-    async def call_hedge_check(self):
+    async def call_check(self):
+        temp_percentage = 1 - (credentials.call_entry_price_changes_by / 100)
         while self.should_continue:
             if self.call_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
@@ -400,20 +306,17 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-                await self.lprint(f"Call Hedge Premium: {premium_price}")
-                open_trades = await self.broker.get_positions()
+                print(premium_price)
+                open_trades = await self.broker.get_open_orders()
 
                 call_exists = any(
-                    trade.contract.secType == 'OPT' and trade.contract.right == 'C' and
-                    trade.contract.symbol == credentials.instrument and trade.contract.strike == self.call_target_price
+                    trade.contract.secType == 'OPT' and trade.contract.right == 'C'
                     for trade in open_trades
                 )
 
-                if not call_exists and self.should_continue:
+                if not call_exists:
+                    await self.close_open_hedges(close_call=True, close_put=False)
                     self.call_order_placed = False
-                    self.call_stp_id = None
-                    if self.close_and_open_hedges_with_position:
-                        await self.close_open_hedges(close_call=True, close_put=False)
                     await self.dprint(
                         f"[CALL] Stop loss triggered - Executing market buy"
                         f"\nCurrent Premium: {premium_price['mid']}"
@@ -423,33 +326,29 @@ class Strategy:
                     )
                     continue
 
-            await asyncio.sleep(1)
+                if temp_percentage <= 0:
+                    continue
 
-    async def call_trail_check(self):
-        temp_percentage = 1
-        while self.should_continue:
-            if self.call_order_placed:
-                premium_price = await self.broker.get_latest_premium_price(
-                    symbol=credentials.instrument,
-                    expiry=credentials.date,
-                    strike=self.call_target_price,
-                    right="C"
-                )
-                await self.lprint(f"Call Sell Leg Premium: {premium_price}")
-                if premium_price['ask'] <= self.atm_call_fill - temp_percentage * (
-                        credentials.call_entry_price_changes_by / 100) * self.atm_call_fill:
+                if premium_price['ask'] <= temp_percentage * self.atm_call_fill:
                     self.atm_call_sl = self.atm_call_sl - (self.atm_call_fill * (credentials.call_change_sl_by / 100))
                     await self.dprint(
                         f"[CALL] Price dip detected - Adjusting trailing parameters"
                         f"\nFill Price: {self.atm_call_fill}"
                         f"\nCurrent Premium: {premium_price['ask']}"
-                        f"\nNew SL: {self.atm_put_sl}"
-                        f"\nTemp value: {temp_percentage}"
+                        f"\nDip Threshold: {temp_percentage * self.atm_call_fill}"
+                        f"\nOld Temp %: {temp_percentage:.2%}"
+                        f"\nNew Temp %: {(temp_percentage - credentials.call_entry_price_changes_by / 100):.2%}"
+                        f"\nNew SL: {self.atm_call_sl}"
                     )
                     await self.broker.modify_stp_order(contract=self.call_contract, side="BUY",
                                                        quantity=credentials.call_position, sl=self.atm_call_sl,
                                                        order_id=self.call_stp_id)
-                    temp_percentage += 1
+
+                    temp_percentage -= credentials.call_entry_price_changes_by / 100
+                    if temp_percentage < 0:
+                        temp_percentage = 0
+                        await self.dprint(f"Put trailing sl is at {temp_percentage}")
+                    continue
 
                 await asyncio.sleep(credentials.call_check_time)
             else:
@@ -460,8 +359,8 @@ class Strategy:
                     strike=self.call_target_price,
                     right="C"
                 )
-                await self.lprint(f"Call Sell Leg Re-entry Premium: {premium_price}")
-                if premium_price['ask'] <= self.atm_call_fill and self.call_rentry < credentials.number_of_re_entry:
+
+                if premium_price['bid'] <= self.atm_call_fill and self.call_rentry < credentials.number_of_re_entry:
                     await self.dprint(
                         f"[CALL] Entry condition met - Initiating new position"
                         f"\nCurrent Premium: {premium_price['bid']}"
@@ -471,10 +370,9 @@ class Strategy:
                     )
                     self.call_rentry += 1
                     await self.dprint(f"Number of re-entries happened: {self.call_rentry}")
-                    if self.close_and_open_hedges_with_position:
-                        await self.place_hedge_orders(call=True, put=False)
+                    await self.place_hedge_orders(call=True, put=False)
                     await self.place_atm_call_order()
-                    temp_percentage = 1
+                    temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
                     self.call_order_placed = True
                     continue
 
@@ -507,30 +405,12 @@ class Strategy:
         print('last price is', premium_price['last'])
 
         try:
-            k, self.atm_put_fill, self.atm_put_id = await self.broker.place_market_order(contract=self.put_contract,
-                                                                                         qty=credentials.put_position,
-                                                                                         side="SELL")
-
-            while self.should_continue:
-                open_orders = await self.broker.get_open_orders()
-                matching_order = next((trade for trade in open_orders if trade.order.orderId == self.otm_put_id), None)
-
-                if matching_order:
-                    self.otm_put_fill = matching_order.orderStatus.avgFillPrice
-                    if self.otm_put_fill > 0:
-                        print(f"Put Hedge {self.otm_put_fill} is filled.")
-                        break
-                    else:
-                        print("Put Hedge still open but not filled")
-                else:
-                    print(f"Put Hedge {self.otm_put_fill} is no longer in open orders — might be cancelled or filled.")
-                    break
-
-                await asyncio.sleep(1)
-
+            k = await self.broker.place_market_order(contract=self.put_contract, qty=credentials.put_position,
+                                                     side="SELL")
             self.put_order_placed = True
+            self.atm_put_fill = k[1]
             self.atm_put_sl = self.atm_put_fill * (1 + (self.put_percent / 100))
-            await self.dprint(f"Put Order placed at {self.atm_put_fill}")
+            await self.dprint(f"Put Order placed at {k[1]}")
             await self.dprint(f"Put Order sl is {self.atm_put_sl}")
             await asyncio.sleep(1)
             self.put_stp_id = await self.broker.place_stp_order(contract=self.put_contract, side="BUY",
@@ -539,7 +419,8 @@ class Strategy:
         except Exception as e:
             await self.dprint(f"Error in placing sell side put order: {str(e)}")
 
-    async def put_hedge_check(self):
+    async def put_check(self):
+        temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
         while self.should_continue:
             if self.put_order_placed:
                 premium_price = await self.broker.get_latest_premium_price(
@@ -548,20 +429,17 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-                await self.lprint(f"Put Hedge Premium: {premium_price}")
-                open_trades = await self.broker.get_positions()
+
+                open_trades = await self.broker.get_open_orders()
 
                 put_exists = any(
-                    trade.contract.secType == 'OPT' and trade.contract.right == 'P' and
-                    trade.contract.symbol == credentials.instrument and trade.contract.strike == self.put_target_price
+                    trade.contract.secType == 'OPT' and trade.contract.right == 'P'
                     for trade in open_trades
                 )
 
-                if not put_exists and self.should_continue:
+                if not put_exists:
+                    await self.close_open_hedges(close_call=False, close_put=True)
                     self.put_order_placed = False
-                    self.put_stp_id = None
-                    if self.close_and_open_hedges_with_position:
-                        await self.close_open_hedges(close_call=False, close_put=True)
                     await self.dprint(
                         f"[PUT] Stop loss triggered - Executing market buy"
                         f"\nCurrent Premium: {premium_price['mid']}"
@@ -571,33 +449,28 @@ class Strategy:
                     )
                     continue
 
-            await asyncio.sleep(1)
+                if temp_percentage <= 0:
+                    continue
 
-    async def put_trail_check(self):
-        temp_percentage = 1
-        while self.should_continue:
-            if self.put_order_placed:
-                premium_price = await self.broker.get_latest_premium_price(
-                    symbol=credentials.instrument,
-                    expiry=credentials.date,
-                    strike=self.put_target_price,
-                    right="P"
-                )
-                await self.lprint(f"Put Sell Leg Premium: {premium_price}")
-                if premium_price['ask'] <= self.atm_put_fill - temp_percentage * (
-                        credentials.put_entry_price_changes_by / 100) * self.atm_put_fill:
+                if premium_price['ask'] <= temp_percentage * self.atm_put_fill:
                     self.atm_put_sl = self.atm_put_sl - (self.atm_put_fill * (credentials.put_change_sl_by / 100))
                     await self.dprint(
                         f"[PUT] Price dip detected - Adjusting trailing parameters"
                         f"\nFill Price: {self.atm_put_fill}"
                         f"\nCurrent Premium: {premium_price['ask']}"
+                        f"\nDip Threshold: {temp_percentage * self.atm_put_fill}"
+                        f"\nOld Temp %: {temp_percentage:.2%}"
+                        f"\nNew Temp %: {(temp_percentage - (credentials.put_entry_price_changes_by / 100)):.2%}"
                         f"\nNew SL: {self.atm_put_sl}"
-                        f"\nTemp value: {temp_percentage}"
                     )
                     await self.broker.modify_stp_order(contract=self.put_contract, side="BUY",
                                                        quantity=credentials.put_position, sl=self.atm_put_sl,
                                                        order_id=self.put_stp_id)
-                    temp_percentage += 1
+                    temp_percentage -= credentials.put_entry_price_changes_by / 100
+                    if temp_percentage < 0:
+                        temp_percentage = 0
+                        await self.dprint(f"Put trailing sl is at {temp_percentage}")
+                    continue
 
                 await asyncio.sleep(credentials.put_check_time)
             else:
@@ -608,8 +481,8 @@ class Strategy:
                     strike=self.put_target_price,
                     right="P"
                 )
-                await self.lprint(f"Put Sell Leg Re-entry Premium: {premium_price}")
-                if premium_price['ask'] <= self.atm_put_fill and self.put_rentry < credentials.number_of_re_entry:
+
+                if premium_price['bid'] <= self.atm_put_fill and self.put_rentry < credentials.number_of_re_entry:
                     await self.dprint(
                         f"[PUT] Entry condition met - Initiating new position"
                         f"\nCurrent Premium: {premium_price['bid']}"
@@ -619,10 +492,9 @@ class Strategy:
                     )
                     self.put_rentry += 1
                     await self.dprint(f"Number of re-entries happened: {self.call_rentry}")
-                    if self.close_and_open_hedges_with_position:
-                        await self.place_hedge_orders(call=False, put=True)
+                    await self.place_hedge_orders(call=False, put=True)
                     await self.place_atm_put_order()
-                    temp_percentage = 1
+                    temp_percentage = 1 - (credentials.put_entry_price_changes_by / 100)
                     self.put_order_placed = True
                     continue
 
