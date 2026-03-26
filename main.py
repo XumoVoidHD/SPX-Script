@@ -66,6 +66,8 @@ class Strategy:
         self.put_rentry = 0
         self.call_order_placed = False
         self.put_order_placed = False
+        self.first_sl_leg = None
+        self._sl_state_lock = asyncio.Lock()
         self.should_continue = True
         self.testing = False
         self.reset = False
@@ -416,6 +418,9 @@ class Strategy:
                 )
 
                 if not call_exists and self.should_continue:
+                    async with self._sl_state_lock:
+                        if self.first_sl_leg is None:
+                            self.first_sl_leg = "call"
                     self.call_order_placed = False
                     self.call_stp_id = None
                     if self.close_and_open_hedges_with_position:
@@ -459,6 +464,9 @@ class Strategy:
 
                 await asyncio.sleep(credentials.call_check_time)
             else:
+                if self.first_sl_leg == "put":
+                    await self.dprint("Call re-entry blocked because put SL was hit first.")
+                    return
                 await self.dprint("Checking for call re-entry")
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
@@ -565,6 +573,9 @@ class Strategy:
                 )
 
                 if not put_exists and self.should_continue:
+                    async with self._sl_state_lock:
+                        if self.first_sl_leg is None:
+                            self.first_sl_leg = "put"
                     self.put_order_placed = False
                     self.put_stp_id = None
                     if self.close_and_open_hedges_with_position:
@@ -608,6 +619,9 @@ class Strategy:
 
                 await asyncio.sleep(credentials.put_check_time)
             else:
+                if self.first_sl_leg == "call":
+                    await self.dprint("Put re-entry blocked because call SL was hit first.")
+                    return
                 await self.dprint("Checking for put re-entry")
                 premium_price = await self.broker.get_latest_premium_price(
                     symbol=credentials.instrument,
