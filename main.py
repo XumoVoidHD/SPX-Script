@@ -171,6 +171,15 @@ class Strategy:
 
                 await self.place_atm_put_order()
                 await self.place_atm_call_order()
+                await self.lprint(
+                    "[CONFIG] Linked rules for this session: "
+                    f"move_opposite_leg_to_cost={credentials.opposite_leg_move_to_cost} "
+                    f"(if True, when one leg hits SL the other leg's stop can move to entry). "
+                    f"respect_opposite_trailing={credentials.opposite_leg_move_to_cost_respect_trailing} "
+                    f"(if True, skip that move once the opposite leg's trailing SL has tightened). "
+                    f"max_re_entries_first_stopped_leg={credentials.number_of_re_entry} "
+                    "(only the leg that stops out first may use these; the other leg never re-enters)."
+                )
                 break
             else:
                 await self.dprint("Market hasn't opened yet")
@@ -438,6 +447,17 @@ class Strategy:
                     async with self._sl_state_lock:
                         if self.first_sl_leg is None:
                             self.first_sl_leg = "call"
+                    if self.first_sl_leg == "call":
+                        await self.lprint(
+                            "[CALL SL] Call leg stopped out first. "
+                            f"Re-entry: only Call allowed, up to {credentials.number_of_re_entry} times "
+                            f"(completed so far: {self.call_rentry}). Put re-entry is blocked for this session."
+                        )
+                    else:
+                        await self.lprint(
+                            "[CALL SL] Call leg stopped out, but Put had already stopped out first. "
+                            "Re-entry: only Put is allowed; Call will not re-enter."
+                        )
                     if (
                         self._may_move_put_sl_to_cost()
                         and self.put_order_placed
@@ -453,6 +473,10 @@ class Strategy:
                             sl=self.atm_put_sl,
                             order_id=self.put_stp_id
                         )
+                        await self.lprint(
+                            f"[MOVE-TO-COST] Put stop moved to entry/cost price {self.atm_put_sl} "
+                            "(allowed because Put trailing had not started yet, or respect-trailing is False)."
+                        )
                         await self.dprint(
                             f"[PUT] Opposite leg SL moved to cost: {self.atm_put_sl}"
                         )
@@ -462,8 +486,21 @@ class Strategy:
                         and self.put_trail_activated
                         and credentials.opposite_leg_move_to_cost_respect_trailing
                     ):
+                        await self.lprint(
+                            "[MOVE-TO-COST] Put stop not changed: Put trailing SL had already tightened and "
+                            "respect_trailing is True."
+                        )
                         await self.dprint(
                             "[PUT] Move-to-cost skipped: put trailing SL already adjusted"
+                        )
+                    elif not credentials.opposite_leg_move_to_cost:
+                        await self.lprint(
+                            "[MOVE-TO-COST] Put stop not changed: move_opposite_leg_to_cost is False in credentials."
+                        )
+                    elif credentials.opposite_leg_move_to_cost:
+                        await self.lprint(
+                            "[MOVE-TO-COST] Put stop not changed: Put not open, or no stop order / fill data — "
+                            "nothing to modify."
                         )
                     self.call_order_placed = False
                     self.call_stp_id = None
@@ -510,6 +547,9 @@ class Strategy:
                 await asyncio.sleep(credentials.call_check_time)
             else:
                 if self.first_sl_leg == "put":
+                    await self.lprint(
+                        "[RE-ENTRY] Call re-entry task ending: Put stop was hit first, so only Put may re-enter."
+                    )
                     await self.dprint("Call re-entry blocked because put SL was hit first.")
                     return
                 await self.dprint("Checking for call re-entry")
@@ -624,6 +664,17 @@ class Strategy:
                     async with self._sl_state_lock:
                         if self.first_sl_leg is None:
                             self.first_sl_leg = "put"
+                    if self.first_sl_leg == "put":
+                        await self.lprint(
+                            "[PUT SL] Put leg stopped out first. "
+                            f"Re-entry: only Put allowed, up to {credentials.number_of_re_entry} times "
+                            f"(completed so far: {self.put_rentry}). Call re-entry is blocked for this session."
+                        )
+                    else:
+                        await self.lprint(
+                            "[PUT SL] Put leg stopped out, but Call had already stopped out first. "
+                            "Re-entry: only Call is allowed; Put will not re-enter."
+                        )
                     if (
                         self._may_move_call_sl_to_cost()
                         and self.call_order_placed
@@ -639,6 +690,10 @@ class Strategy:
                             sl=self.atm_call_sl,
                             order_id=self.call_stp_id
                         )
+                        await self.lprint(
+                            f"[MOVE-TO-COST] Call stop moved to entry/cost price {self.atm_call_sl} "
+                            "(allowed because Call trailing had not started yet, or respect-trailing is False)."
+                        )
                         await self.dprint(
                             f"[CALL] Opposite leg SL moved to cost: {self.atm_call_sl}"
                         )
@@ -648,8 +703,21 @@ class Strategy:
                         and self.call_trail_activated
                         and credentials.opposite_leg_move_to_cost_respect_trailing
                     ):
+                        await self.lprint(
+                            "[MOVE-TO-COST] Call stop not changed: Call trailing SL had already tightened and "
+                            "respect_trailing is True."
+                        )
                         await self.dprint(
                             "[CALL] Move-to-cost skipped: call trailing SL already adjusted"
+                        )
+                    elif not credentials.opposite_leg_move_to_cost:
+                        await self.lprint(
+                            "[MOVE-TO-COST] Call stop not changed: move_opposite_leg_to_cost is False in credentials."
+                        )
+                    elif credentials.opposite_leg_move_to_cost:
+                        await self.lprint(
+                            "[MOVE-TO-COST] Call stop not changed: Call not open, or no stop order / fill data — "
+                            "nothing to modify."
                         )
                     self.put_order_placed = False
                     self.put_stp_id = None
@@ -696,6 +764,9 @@ class Strategy:
                 await asyncio.sleep(credentials.put_check_time)
             else:
                 if self.first_sl_leg == "call":
+                    await self.lprint(
+                        "[RE-ENTRY] Put re-entry task ending: Call stop was hit first, so only Call may re-enter."
+                    )
                     await self.dprint("Put re-entry blocked because call SL was hit first.")
                     return
                 await self.dprint("Checking for put re-entry")
