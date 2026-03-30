@@ -67,6 +67,8 @@ class Strategy:
         self.call_order_placed = False
         self.put_order_placed = False
         self.first_sl_leg = None
+        self.call_trail_activated = False
+        self.put_trail_activated = False
         self._sl_state_lock = asyncio.Lock()
         self.should_continue = True
         self.testing = False
@@ -84,6 +86,20 @@ class Strategy:
     async def lprint(self, phrase):
         if self.enable_logging:
             self.logger.info(phrase)
+
+    def _may_move_put_sl_to_cost(self):
+        if not credentials.opposite_leg_move_to_cost:
+            return False
+        if not credentials.opposite_leg_move_to_cost_respect_trailing:
+            return True
+        return not self.put_trail_activated
+
+    def _may_move_call_sl_to_cost(self):
+        if not credentials.opposite_leg_move_to_cost:
+            return False
+        if not credentials.opposite_leg_move_to_cost_respect_trailing:
+            return True
+        return not self.call_trail_activated
 
     async def main(self):
         await send_discord_message("." * 100)
@@ -389,6 +405,7 @@ class Strategy:
                 await asyncio.sleep(1)
 
             self.call_order_placed = True
+            self.call_trail_activated = False
             self.atm_call_sl = self.atm_call_fill * (1 + (self.call_percent / 100))
             await self.dprint(f"Call Order placed at {self.atm_call_fill}")
             await self.dprint(f"Call Order sl is {self.atm_call_sl}")
@@ -421,6 +438,33 @@ class Strategy:
                     async with self._sl_state_lock:
                         if self.first_sl_leg is None:
                             self.first_sl_leg = "call"
+                    if (
+                        self._may_move_put_sl_to_cost()
+                        and self.put_order_placed
+                        and self.put_stp_id
+                        and self.put_contract is not None
+                        and self.atm_put_fill is not None
+                    ):
+                        self.atm_put_sl = round(self.atm_put_fill, 1)
+                        await self.broker.modify_stp_order(
+                            contract=self.put_contract,
+                            side="BUY",
+                            quantity=credentials.put_position,
+                            sl=self.atm_put_sl,
+                            order_id=self.put_stp_id
+                        )
+                        await self.dprint(
+                            f"[PUT] Opposite leg SL moved to cost: {self.atm_put_sl}"
+                        )
+                    elif (
+                        credentials.opposite_leg_move_to_cost
+                        and self.put_order_placed
+                        and self.put_trail_activated
+                        and credentials.opposite_leg_move_to_cost_respect_trailing
+                    ):
+                        await self.dprint(
+                            "[PUT] Move-to-cost skipped: put trailing SL already adjusted"
+                        )
                     self.call_order_placed = False
                     self.call_stp_id = None
                     if self.close_and_open_hedges_with_position:
@@ -454,12 +498,13 @@ class Strategy:
                         f"[CALL] Price dip detected - Adjusting trailing parameters"
                         f"\nFill Price: {self.atm_call_fill}"
                         f"\nCurrent Premium: {premium_price['ask']}"
-                        f"\nNew SL: {self.atm_put_sl}"
+                        f"\nNew SL: {self.atm_call_sl}"
                         f"\nTemp value: {temp_percentage}"
                     )
                     await self.broker.modify_stp_order(contract=self.call_contract, side="BUY",
                                                        quantity=credentials.call_position, sl=self.atm_call_sl,
                                                        order_id=self.call_stp_id)
+                    self.call_trail_activated = True
                     temp_percentage += 1
 
                 await asyncio.sleep(credentials.call_check_time)
@@ -528,22 +573,25 @@ class Strategy:
 
             while self.should_continue:
                 open_orders = await self.broker.get_open_orders()
-                matching_order = next((trade for trade in open_orders if trade.order.orderId == self.otm_put_id), None)
+                matching_order = next((trade for trade in open_orders if trade.order.orderId == self.atm_put_id), None)
 
                 if matching_order:
-                    self.otm_put_fill = matching_order.orderStatus.avgFillPrice
-                    if self.otm_put_fill > 0:
-                        print(f"Put Hedge {self.otm_put_fill} is filled.")
+                    self.atm_put_fill = matching_order.orderStatus.avgFillPrice
+                    if self.atm_put_fill > 0:
+                        print(f"Put Position {self.atm_put_id} is filled.")
                         break
                     else:
-                        print("Put Hedge still open but not filled")
+                        print("Put Position still open but not filled")
                 else:
-                    print(f"Put Hedge {self.otm_put_fill} is no longer in open orders — might be cancelled or filled.")
+                    print(
+                        f"Put Position {self.atm_put_id} is no longer in open orders — might be cancelled or filled."
+                    )
                     break
 
                 await asyncio.sleep(1)
 
             self.put_order_placed = True
+            self.put_trail_activated = False
             self.atm_put_sl = self.atm_put_fill * (1 + (self.put_percent / 100))
             await self.dprint(f"Put Order placed at {self.atm_put_fill}")
             await self.dprint(f"Put Order sl is {self.atm_put_sl}")
@@ -576,6 +624,33 @@ class Strategy:
                     async with self._sl_state_lock:
                         if self.first_sl_leg is None:
                             self.first_sl_leg = "put"
+                    if (
+                        self._may_move_call_sl_to_cost()
+                        and self.call_order_placed
+                        and self.call_stp_id
+                        and self.call_contract is not None
+                        and self.atm_call_fill is not None
+                    ):
+                        self.atm_call_sl = round(self.atm_call_fill, 1)
+                        await self.broker.modify_stp_order(
+                            contract=self.call_contract,
+                            side="BUY",
+                            quantity=credentials.call_position,
+                            sl=self.atm_call_sl,
+                            order_id=self.call_stp_id
+                        )
+                        await self.dprint(
+                            f"[CALL] Opposite leg SL moved to cost: {self.atm_call_sl}"
+                        )
+                    elif (
+                        credentials.opposite_leg_move_to_cost
+                        and self.call_order_placed
+                        and self.call_trail_activated
+                        and credentials.opposite_leg_move_to_cost_respect_trailing
+                    ):
+                        await self.dprint(
+                            "[CALL] Move-to-cost skipped: call trailing SL already adjusted"
+                        )
                     self.put_order_placed = False
                     self.put_stp_id = None
                     if self.close_and_open_hedges_with_position:
@@ -615,6 +690,7 @@ class Strategy:
                     await self.broker.modify_stp_order(contract=self.put_contract, side="BUY",
                                                        quantity=credentials.put_position, sl=self.atm_put_sl,
                                                        order_id=self.put_stp_id)
+                    self.put_trail_activated = True
                     temp_percentage += 1
 
                 await asyncio.sleep(credentials.put_check_time)
@@ -639,7 +715,7 @@ class Strategy:
                         f"\nReentry Count: {self.put_rentry + 1}"
                     )
                     self.put_rentry += 1
-                    await self.dprint(f"Number of re-entries happened: {self.call_rentry}")
+                    await self.dprint(f"Number of re-entries happened: {self.put_rentry}")
                     if self.close_and_open_hedges_with_position:
                         await self.place_hedge_orders(call=False, put=True)
                     await self.place_atm_put_order()
