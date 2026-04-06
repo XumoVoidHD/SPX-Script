@@ -18,6 +18,7 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1479071097134649496/P4FPegjWst-G
 
 # Changeable Values
 date = "20260323"  # Date of contract (YYYY-MM-DD)
+restrict_reentry_to_first_stopped_leg = True  # If True, only the first SL-hit leg can re-enter; if False, Call/Put re-enter independently
 number_of_re_entry = 0  # Re-entry attempts allowed for the first stopped leg (set >1 for multiple re-entries)
 opposite_leg_move_to_cost = True  # When one ATM leg stops out, move the other leg's stop to entry (cost)
 # If True, skip move-to-cost when the opposite leg's trailing SL has tightened at least once

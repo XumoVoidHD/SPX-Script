@@ -101,6 +101,23 @@ class Strategy:
             return True
         return not self.call_trail_activated
 
+    def _first_sl_reentry_lock_enabled(self):
+        return credentials.restrict_reentry_to_first_stopped_leg
+
+    async def _register_stop_loss_hit(self, leg):
+        if not self._first_sl_reentry_lock_enabled():
+            return None
+        async with self._sl_state_lock:
+            if self.first_sl_leg is None:
+                self.first_sl_leg = leg
+            return self.first_sl_leg
+
+    def _is_reentry_blocked(self, leg):
+        if not self._first_sl_reentry_lock_enabled():
+            return False
+        opposite_leg = "put" if leg == "call" else "call"
+        return self.first_sl_leg == opposite_leg
+
     async def main(self):
         await send_discord_message("." * 100)
         await self.dprint("\n1. Testing connection...")
@@ -173,12 +190,14 @@ class Strategy:
                 await self.place_atm_call_order()
                 await self.lprint(
                     "[CONFIG] Linked rules for this session: "
+                    f"restrict_reentry_to_first_stopped_leg={self._first_sl_reentry_lock_enabled()} "
+                    "(if True, only the first SL-hit leg may re-enter for this session). "
                     f"move_opposite_leg_to_cost={credentials.opposite_leg_move_to_cost} "
                     f"(if True, when one leg hits SL the other leg's stop can move to entry). "
                     f"respect_opposite_trailing={credentials.opposite_leg_move_to_cost_respect_trailing} "
                     f"(if True, skip that move once the opposite leg's trailing SL has tightened). "
                     f"max_re_entries_first_stopped_leg={credentials.number_of_re_entry} "
-                    "(only the leg that stops out first may use these; the other leg never re-enters)."
+                    "(when first-stop restriction is enabled, only that leg may use these; otherwise each leg uses its own limit)."
                 )
                 break
             else:
@@ -444,10 +463,13 @@ class Strategy:
                 )
 
                 if not call_exists and self.should_continue:
-                    async with self._sl_state_lock:
-                        if self.first_sl_leg is None:
-                            self.first_sl_leg = "call"
-                    if self.first_sl_leg == "call":
+                    controlling_leg = await self._register_stop_loss_hit("call")
+                    if not self._first_sl_reentry_lock_enabled():
+                        await self.lprint(
+                            "[CALL SL] Call leg stopped out. First-stop re-entry restriction is disabled, "
+                            "so Call and Put may continue managing re-entry independently."
+                        )
+                    elif controlling_leg == "call":
                         await self.lprint(
                             "[CALL SL] Call leg stopped out first. "
                             f"Re-entry: only Call allowed, up to {credentials.number_of_re_entry} times "
@@ -546,7 +568,7 @@ class Strategy:
 
                 await asyncio.sleep(credentials.call_check_time)
             else:
-                if self.first_sl_leg == "put":
+                if self._is_reentry_blocked("call"):
                     await self.lprint(
                         "[RE-ENTRY] Call re-entry task ending: Put stop was hit first, so only Put may re-enter."
                     )
@@ -661,10 +683,13 @@ class Strategy:
                 )
 
                 if not put_exists and self.should_continue:
-                    async with self._sl_state_lock:
-                        if self.first_sl_leg is None:
-                            self.first_sl_leg = "put"
-                    if self.first_sl_leg == "put":
+                    controlling_leg = await self._register_stop_loss_hit("put")
+                    if not self._first_sl_reentry_lock_enabled():
+                        await self.lprint(
+                            "[PUT SL] Put leg stopped out. First-stop re-entry restriction is disabled, "
+                            "so Call and Put may continue managing re-entry independently."
+                        )
+                    elif controlling_leg == "put":
                         await self.lprint(
                             "[PUT SL] Put leg stopped out first. "
                             f"Re-entry: only Put allowed, up to {credentials.number_of_re_entry} times "
@@ -763,7 +788,7 @@ class Strategy:
 
                 await asyncio.sleep(credentials.put_check_time)
             else:
-                if self.first_sl_leg == "call":
+                if self._is_reentry_blocked("put"):
                     await self.lprint(
                         "[RE-ENTRY] Put re-entry task ending: Call stop was hit first, so only Call may re-enter."
                     )
